@@ -2,5 +2,6 @@ pandas
 numpy
 scikit-learn
 joblib
+plotly
 streamlit
 xgboost

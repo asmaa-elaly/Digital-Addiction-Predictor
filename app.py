@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 
 # Set page configuration for a clean look
 st.set_page_config(
-    page_title="🤳💉 Phone Addiction Predictor & Analysis",
+    page_title="Digital Addiction Predictor & Analysis",
     layout="wide", # Changed to 'wide' for better visualization display
     initial_sidebar_state="collapsed",
 )
@@ -20,8 +20,7 @@ st.set_page_config(
 @st.cache_resource
 def load_assets():
     """Loads the trained model, scaler, and feature list from joblib files.
-    Crucially, it now performs Feature Engineering on the main EDA DataFrame (df)
-    to make the new features available globally across the app.
+    Also performs Feature Engineering on the main EDA DataFrame (df).
     """
     try:
         model = joblib.load('final_xgb_model.joblib')
@@ -30,6 +29,7 @@ def load_assets():
         
         # Load the original data for EDA
         df = pd.read_csv('teen_phone_addiction_dataset.csv')
+        # Drop columns not needed for EDA or modeling (already dropped in notebook)
         df.drop(columns=['ID', 'Name', 'Location', 'Age', 'School_Grade','Parental_Control'], inplace=True)
         
         # --- GLOBAL FEATURE ENGINEERING FOR EDA ---
@@ -43,7 +43,7 @@ def load_assets():
 
         return model, scaler, features, df
     except FileNotFoundError as e:
-        st.error(f"Required file not found: {e.filename}. Ensure 'teen_phone_addiction_dataset.csv' is present and you have run 'python save_model.py'.")
+        st.error(f"Required file not found: {e.filename}. Ensure 'teen_phone_addiction_dataset.csv', model, scaler, and feature files are present.")
         return None, None, None, None
 
 model, scaler, feature_names, df = load_assets()
@@ -73,15 +73,14 @@ CATEGORICAL_FEATURES = {
 }
 
 
-
 # ----------------------------------------------------
 # 3. Dedicated Functions for Each Tab
 # ----------------------------------------------------
 
 def prediction_tab_content():
     """Generates the content for the Prediction Tab (Inputs and Output)."""
-    st.header("Predict Phone Addiction Level")
-    st.markdown("Enter the teen's profile and behavioral data to predict the Phone Addiction Level (1.0 - 10.0).")
+    st.header("🤳💉Predict Digital Addiction Level")
+    st.markdown("Enter the teen's profile and behavioral data to predict the phone Addiction Level (1.0 - 10.0).")
 
     with st.container(border=True):
         st.subheader("Profile & Usage Data")
@@ -194,20 +193,48 @@ def eda_tab_content(data, xgb_model):
     st.header("Data Exploration & Model Insights")
     st.markdown("Review the underlying data distributions and see which features the trained model considers most important.")
 
-    # --- 1. Target Variable Distribution (Static Plot, kept for simple distribution) ---
-    st.subheader("1. Target Variable")
-    st.info("Target Variable in the orginial dataset.")
+    # --- 1. Target Variable Distribution (Interactive Plotly) ---
+    st.subheader("1. Target Variable Distribution")
+    st.info("Distribution of the original 'Addiction_Level' scores (1.0 - 10.0).")
     
-    # We use a simple Streamlit chart here for quick display
-    st.bar_chart(data['Addiction_Level'].value_counts().sort_index()) 
+    # Calculate counts and prepare for Plotly
+    counts_df = data['Addiction_Level'].value_counts().sort_index().reset_index()
+    counts_df.columns = ['Addiction_Level', 'Count']
+    
+    # Plotly Line and Scatter Chart (as requested by user)
+    fig_target = go.Figure()
+
+    # Scatter Plot (to show discrete points)
+    fig_target.add_trace(go.Scatter(
+        x=counts_df['Addiction_Level'], 
+        y=counts_df['Count'], 
+        mode='markers', 
+        name='Data Points',
+        marker=dict(size=10, color='red')
+    ))
+
+    # Line Chart (to show trend)
+    fig_target.add_trace(go.Scatter(
+        x=counts_df['Addiction_Level'], 
+        y=counts_df['Count'], 
+        mode='lines', 
+        name='Trend Line',
+        line=dict(color='blue', width=2)
+    ))
+    
+    fig_target.update_layout(
+        title='Line & Scatter Plot of Addiction Level Counts',
+        xaxis_title='Addiction Level (1.0 - 10.0)',
+        yaxis_title='Count of Observations',
+        hovermode="x unified"
+    )
+    st.plotly_chart(fig_target, use_container_width=True)
     st.markdown("---")
     
     # --- 2. Correlation Heatmap (Interactive Plotly) ---
     st.subheader("2. Feature Correlation Heatmap")
-    st.info("Visualizing the linear relationships between all numeric features. Hover over a square to see the correlation coefficient. This now includes the new engineered features.")
+    st.info("Visualizing the linear relationships between all numeric features, including the new engineered features. Hover over a square to see the coefficient.")
     
-    # Identify numeric columns for the heatmap
-    # NOTE: The df now contains the engineered features because they were added in load_assets
     numeric_cols = data.select_dtypes(include=np.number).columns.tolist()
     correlation_matrix = data[numeric_cols].corr()
 
@@ -216,11 +243,10 @@ def eda_tab_content(data, xgb_model):
         correlation_matrix,
         text_auto=".2f", # Show text labels inside cells
         aspect="auto",
-        color_continuous_scale='RdBu_r', # Corresponds to coolwarm/RdBu
+        color_continuous_scale='RdBu_r', 
         x=correlation_matrix.columns.tolist(),
         y=correlation_matrix.index.tolist()
     )
-    # Update layout for better viewing
     fig_corr.update_layout(height=800, width=1000)
     fig_corr.update_xaxes(side="top")
     st.plotly_chart(fig_corr, use_container_width=True)
@@ -229,7 +255,7 @@ def eda_tab_content(data, xgb_model):
     
     # --- 3. Daily Usage Boxplot (Interactive Plotly) ---
     st.subheader("3. Daily Usage vs. Addiction Level")
-    st.info("This box plot shows how the distribution of daily phone usage hours changes as the reported addiction level increases. Hover over the boxes to see quartile values.")
+    st.info("This box plot shows how the distribution of daily phone usage hours changes across addiction risk groups.")
     
     # Bin Addiction_Level for a cleaner categorical plot
     data['Addiction_Risk_Group'] = pd.cut(data['Addiction_Level'], bins=[0, 3, 6.5, 10], labels=['Low (1-3)', 'Moderate (3-6.5)', 'High (6.5-10)'], right=True)
@@ -248,32 +274,44 @@ def eda_tab_content(data, xgb_model):
     
     st.markdown("---")
     
-    # --- 4. Top Feature Importances (Existing Plot) ---
+    # --- 4. Top Feature Importances (Grouped & Revised Plot) ---
     st.subheader("4. Top Feature Importances (from XGBoost Model)")
-    st.info("Features with higher importance scores had a greater impact on the model's predictions.")
+    st.info("Features with higher importance scores had a greater impact on the model's predictions. Categorical features are grouped under their parent name.")
     
     if hasattr(xgb_model, 'feature_importances_'):
         importances = pd.Series(xgb_model.feature_importances_, index=feature_names)
         
         grouped_importances = {}
-        for feature, imp in importances.items():
-            # Handling original and one-hot encoded features
-            base_feature = feature.split('_')[0] if feature.startswith(tuple(CATEGORICAL_FEATURES.keys())) else feature
-            grouped_importances[base_feature] = grouped_importances.get(base_feature, 0) + imp
-            
-        top_features = pd.Series(grouped_importances).sort_values(ascending=False).head(10)
         
-        # Plotly Bar Chart for interactivity (replaces the Matplotlib plot)
+        # Define all prefixes to group (based on CATEGORICAL_FEATURES keys)
+        grouping_prefixes = tuple([f'{key}_' for key in CATEGORICAL_FEATURES.keys()])
+        
+        for feature, imp in importances.items():
+            # --- FEATURE GROUPING LOGIC ---
+            base_feature = feature
+            for prefix in grouping_prefixes:
+                if feature.startswith(prefix):
+                    # The base feature is the name before the underscore (e.g., 'Gender' for 'Gender_Male')
+                    base_feature = prefix[:-1] # Remove the trailing underscore to get 'Gender'
+                    break
+                
+            # Sum the importance under the base feature name
+            grouped_importances[base_feature] = grouped_importances.get(base_feature, 0) + imp
+            # --- END FEATURE GROUPING LOGIC ---
+            
+        top_features = pd.Series(grouped_importances).sort_values(ascending=False).head(20) # Showing top 20
+        
+        # Plotly Bar Chart for interactivity
         fig2 = px.bar(
             x=top_features.values, 
             y=top_features.index, 
             orientation='h', 
-            title='Top 10 Important Features for Addiction Prediction',
-            labels={'x': 'Feature Importance Score', 'y': 'Feature'},
+            title='Top 20 Important Features for Addiction Prediction (Grouped)',
+            labels={'x': 'Feature Importance Score (Summed)', 'y': 'Feature'},
             color=top_features.index,
             color_discrete_sequence=px.colors.sequential.Viridis
         )
-        fig2.update_yaxes(autorange="reversed") # To display the highest importance at the top
+        fig2.update_yaxes(autorange="reversed") 
         fig2.update_traces(hovertemplate='Feature: %{y}<br>Importance: %{x:.4f}<extra></extra>')
         st.plotly_chart(fig2, use_container_width=True)
     else:
@@ -283,9 +321,9 @@ def eda_tab_content(data, xgb_model):
     
     # --- 5. Model Performance Metrics Comparison (Interactive Plotly) ---
     st.subheader("5. Model Performance Comparison")
-    st.warning("NOTE: The metrics for Linear Regression and Random Forest are placeholder values. Replace them with your actual results from your training notebook.")
+    st.warning("NOTE: The metrics are the final results from the model training process.")
     
-    # Placeholder values for demonstration (REPLACE THESE WITH YOUR ACTUAL NOTEBOOK VALUES)
+    # ACTUAL Final Metrics
     mae_lin =0.6241795816100523
     rmse_lin = 0.782650238279498
     r2_lin = 0.7568617549910496
@@ -294,7 +332,6 @@ def eda_tab_content(data, xgb_model):
     rmse_rf = 0.5259850473159859
     r2_rf = 0.8901842503902849
     
-    # Assuming you retrieved your final XGBoost metrics
     mae_xgb_final = 0.23531247107187905
     rmse_xgb_final = 0.33530684339987765
     r2_xgb_final = 0.955372488724678
@@ -317,7 +354,7 @@ def eda_tab_content(data, xgb_model):
         y='Value', 
         color='Model', 
         barmode='group',
-        text='Value', # This adds text labels to the bars
+        text='Value', 
         title='Model Performance Metrics Comparison'
     )
     # Customize hover template to show precise value on hover
